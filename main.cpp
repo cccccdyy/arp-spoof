@@ -224,13 +224,11 @@ void relay(pcap_t* handle, Ip sender_ip, Ip receiver_ip, Mac sender_mac, Mac rec
 			// sender re-infection 
 			if((ethernet_hdr->dmac() == Mac("ff:ff:ff:ff:ff:ff") && arp_hdr->sip() == Ip(sender_ip)) || \
 				(ethernet_hdr->dmac() == Mac(my_mac) && arp_hdr->sip() == sender_ip)) {
-				debug(1);
 				reply(handle, sender_ip, receiver_ip, sender_mac);
 			}	
 			// receiver re-infection
 			else if ((ethernet_hdr->dmac() == Mac("ff:ff:ff:ff:ff:ff") && arp_hdr->sip() == Ip(receiver_ip)) ||\
 				(ethernet_hdr->dmac() == Mac(my_mac) && arp_hdr->sip() == receiver_ip)) {
-				debug(2);
 				reply(handle, receiver_ip, sender_ip, receiver_mac);
 			}
 		}
@@ -243,7 +241,6 @@ void infection_routine(void* thread_arg)
 
 	while(true) {
 		sleep(10); // 10 sec sleep
-		debug(3);
 		reply(arg->handle, arg->sender_ip, arg->receiver_ip, arg->sender_mac);
 		reply(arg->handle, arg->receiver_ip, arg->sender_ip, arg->receiver_mac);
 	}
