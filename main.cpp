@@ -107,7 +107,7 @@ int reply(pcap_t* handle, Ip sender_ip, Ip receiver_ip, Mac sender_mac)
 	return 0;
 }
 
-int infection(pcap_t* handle, uint32_t sender_ip, uint32_t receiver_ip, Mac* sender_mac)
+int infection(pcap_t* handle, Ip sender_ip, Ip receiver_ip, Mac* sender_mac)
 {
 
 	EthArpPacket packet;
@@ -125,7 +125,7 @@ int infection(pcap_t* handle, uint32_t sender_ip, uint32_t receiver_ip, Mac* sen
 	packet.arp_.smac_ = Mac(my_mac); // my mac
 	packet.arp_.sip_ = htonl(Ip("0.0.0.0")); // my ip ?
 	packet.arp_.tmac_ = Mac("00:00:00:00:00:00");
-	packet.arp_.tip_ = htonl(Ip(sender_ip)); // sender ip
+	packet.arp_.tip_ = htonl(sender_ip); // sender ip
 
 	pthread_mutex_lock(&mutex);
 	int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
@@ -152,7 +152,7 @@ int infection(pcap_t* handle, uint32_t sender_ip, uint32_t receiver_ip, Mac* sen
 		if(eth_type == EthHdr::Arp){ // check if arp 
 			/* Get ARP header */
 			arp_hdr = (PArpHdr)(rcvpacket + sizeof(struct EthHdr));
-			if(arp_hdr->sip()==Ip(sender_ip)) break; // check sender ip
+			if(arp_hdr->sip()==sender_ip) break; // check sender ip
 		}
 	}
 	*sender_mac = arp_hdr->smac();
@@ -223,13 +223,13 @@ void relay(pcap_t* handle, Ip sender_ip, Ip receiver_ip, Mac sender_mac, Mac rec
 
 			// sender re-infection 
 			if((ethernet_hdr->dmac() == Mac("ff:ff:ff:ff:ff:ff") && arp_hdr->sip() == Ip(sender_ip)) || \
-				(ethernet_hdr->dmac() == Mac(my_mac) && arp_hdr->sip() == Ip(sender_ip))) {
+				(ethernet_hdr->dmac() == Mac(my_mac) && arp_hdr->sip() == sender_ip)) {
 				debug(1);
 				reply(handle, sender_ip, receiver_ip, sender_mac);
 			}	
 			// receiver re-infection
 			else if ((ethernet_hdr->dmac() == Mac("ff:ff:ff:ff:ff:ff") && arp_hdr->sip() == Ip(receiver_ip)) ||\
-				(ethernet_hdr->dmac() == Mac(my_mac) && arp_hdr->sip() == Ip(receiver_ip))) {
+				(ethernet_hdr->dmac() == Mac(my_mac) && arp_hdr->sip() == receiver_ip)) {
 				debug(2);
 				reply(handle, receiver_ip, sender_ip, receiver_mac);
 			}
