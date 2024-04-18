@@ -12,6 +12,7 @@
 #include "iphdr.h"
 
 uint8_t my_mac[6];
+uint32_t my_ip;
 
 void debug(int a)
 {
@@ -214,17 +215,21 @@ int main (int argc, char* argv[])
         if (eth_type == EthHdr::Ip4){ // ipv4
 			ip_hdr = (PIpHdr)(packet + sizeof(struct EthHdr)); // Get Ip header 
             for (int i = 0; i < count; i++) {
-                if (ip_hdr->sip() == sender_ip[i]) {
+                if (ip_hdr->sip() == sender_ip[i] && ip_hdr->dip() != Ip(my_ip)) {
                     relay(handle, ethernet_hdr, ip_hdr, receiver_mac[i]); // relay packet
                     break;
                 }
+				else if (ip_hdr->dip() == sender_ip[i] && ip_hdr->sip() != receiver_ip[i]) { 
+					relay(handle, ethernet_hdr, ip_hdr, sender_mac[i]); // relay packet
+                    break;
+				}
             }
         }
         else if (eth_type == EthHdr::Arp) { // arp
             arp_hdr = (PArpHdr)(packet + sizeof(struct EthHdr)); // Get ARP header
             for (int i = 0; i < count; i++) {
                 if ((arp_hdr->sip() == sender_ip[i] && arp_hdr->tip() == receiver_ip[i]) || \
-                    (arp_hdr->sip() == receiver_ip[i] && arp_hdr->tip() == sender_ip[i])){
+                    (arp_hdr->sip() == receiver_ip[i])){
                     reply(handle, sender_ip[i], receiver_ip[i], sender_mac[i]); //reinfection
                 }
             }
