@@ -234,7 +234,6 @@ int main (int argc, char* argv[])
         time_t current_sec = time(NULL);
         check = current_sec - start_sec;
         if (check >= 10){
-            debug(1);
             for (int i = 0; i < count ; i++) {
                 reply(handle, sender_ip[i], receiver_ip[i], sender_mac[i]); //reinfection
             }
