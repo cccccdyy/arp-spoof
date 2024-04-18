@@ -256,12 +256,24 @@ int main (int argc, char* argv[])
 		uint16_t eth_type = ethernet_hdr->type();
         if (eth_type == EthHdr::Ip4){ // ipv4
 			ip_hdr = (PIpHdr)(packet + sizeof(struct EthHdr)); // Get Ip header 
+
+			int flag = 0;
+			/* internel packet : sender <-> receiver */
             for (int i = 0; i < count; i++) {
-                if (ip_hdr->sip() == flows[i].sender_ip && ip_hdr->dip() != Ip(my_ip)) {
+				flag = 1;
+				if (ip_hdr->sip() == flows[i].sender_ip && ip_hdr->dip() == flows[i].receiver_ip) { // from sender to receiver
+					relay(handle, ethernet_hdr, ip_hdr, flows[i].receiver_mac); // relay packet
+                    break;
+				}
+			}
+			/* externel packet : sender <-> outside */
+			for (int i = 0; i < count; i++) {
+				if (flag == 1) break;
+                if (ip_hdr->sip() == flows[i].sender_ip && ip_hdr->dip() != my_ip && ip_hdr->dip() != flows[i].receiver_ip) { // from sender to outside
                     relay(handle, ethernet_hdr, ip_hdr, flows[i].receiver_mac); // relay packet
                     break;
                 }
-				else if (ip_hdr->dip() == flows[i].sender_ip && ip_hdr->sip() != flows[i].receiver_ip) { 
+				else if (ip_hdr->dip() == flows[i].sender_ip && ip_hdr->sip() != flows[i].receiver_ip) { // outside to sender 
 					relay(handle, ethernet_hdr, ip_hdr, flows[i].sender_mac); // relay packet
                     break;
 				}
