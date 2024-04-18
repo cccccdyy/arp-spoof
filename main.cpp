@@ -214,7 +214,7 @@ int main (int argc, char* argv[])
         if (eth_type == EthHdr::Ip4){ // ipv4
 			ip_hdr = (PIpHdr)(packet + sizeof(struct EthHdr)); // Get Ip header 
             for (int i = 0; i < count; i++) {
-                if (ip_hdr->sip() == sender_ip[i] && ip_hdr->dip() == receiver_ip[i]) {
+                if (ip_hdr->sip() == sender_ip[i]) {
                     relay(handle, ethernet_hdr, ip_hdr, receiver_mac[i]); // relay packet
                     break;
                 }
