@@ -260,8 +260,8 @@ int main (int argc, char* argv[])
 			int flag = 0;
 			/* internel packet : sender <-> receiver */
             for (int i = 0; i < count; i++) {
-				flag = 1;
 				if (ip_hdr->sip() == flows[i].sender_ip && ip_hdr->dip() == flows[i].receiver_ip) { // from sender to receiver
+					flag = 1;
 					relay(handle, ethernet_hdr, ip_hdr, flows[i].receiver_mac); // relay packet
                     break;
 				}
@@ -290,7 +290,7 @@ int main (int argc, char* argv[])
         }
     }
 
-	if(pthread_join(thread_t, 0)){
+	if (pthread_join(thread_t, 0)){
 			perror("thread join error:");
     		exit(0);
 	}
